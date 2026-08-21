@@ -1,0 +1,127 @@
+# TLT protocol v1.1 — same experimental grid as v1.
+# Version 1.1 is a temporal-validity correction, not result-driven redevelopment:
+# OULAD assessment score values are excluded because grade-release time is
+# not recorded. Seeds, capacities, privacy grid, and architectures are unchanged.
+# Do not edit after seeing test results except via a new versioned file
+# with an explicit bug-fix reason.
+
+protocol_id: tlt_prioritization_stability_v1
+protocol_version: "1.1"
+protocol_change_reason: "temporal-validity correction: remove unverifiable OULAD assessment scores"
+frozen_utc: "2026-08-20T00:00:00Z"
+split_seed: 20260820
+n_replicates: 20
+n_bootstrap: 5000
+bootstrap_seed: 20260820
+
+scientific_object: capacity_constrained_prioritization_queue_for_human_review
+queue_name: priority_queue
+tie_break: "descending_score then lexicographic_record_id"
+k_definition: "k = min(n, max(1, ceil(n * k_frac)))"
+
+datasets:
+  primary:
+    - name: OULAD
+      checkpoint: day28
+      tau_days: 28
+      prediction_unit: student-course registration
+      split_unit: unique_student
+      student_id: id_student
+      label: "Fail/Withdrawn = 1; Pass/Distinction = 0 (recorded end-of-module outcome)"
+      eligible_rule: "date_registration <= 28 and (date_unregistration missing or > 28)"
+      group_attribute: gender
+      group_in_features: false
+    - name: UCI697
+      checkpoint: semester1
+      prediction_unit: student record
+      split_unit: row
+      label: "Dropout = 1; Graduate = 0; Enrolled excluded"
+      group_attribute: Gender
+      group_in_features: false
+      forbidden_features:
+        - "Curricular units 2nd sem (credited)"
+        - "Curricular units 2nd sem (enrolled)"
+        - "Curricular units 2nd sem (evaluations)"
+        - "Curricular units 2nd sem (approved)"
+        - "Curricular units 2nd sem (grade)"
+        - "Curricular units 2nd sem (without evaluations)"
+  secondary:
+    - name: OULAD
+      checkpoint: day14
+      tau_days: 14
+    - name: OULAD
+      checkpoint: day56
+      tau_days: 56
+    - name: UCI697
+      checkpoint: enrollment
+
+not_primary:
+  - UCI319
+  - HarvardX
+
+architectures:
+  - name: logistic
+    hidden: null
+    notes: "single linear layer, 2-class softmax; NP and DP use the same torch module"
+  - name: mlp_small
+    hidden: 64
+    activation: ReLU
+    notes: "one hidden layer, 64 units; no dropout in primary grid"
+
+privacy:
+  mechanism: DP-SGD
+  accountant: "Opacus PrivacyEngine.make_private_with_epsilon (RDP)"
+  target_epsilons: [10.0, 5.0, 1.0]
+  delta_rule: "1 / n_train"
+  clipping_norm: 1.0
+  dp_epochs: 30
+  dp_batch_size: 256
+  dp_lr: 0.001
+  early_stopping_on_dp: false
+  sampling: poisson
+
+optimization:
+  np_epochs: 50
+  np_batch_size: 64
+  np_lr: 0.001
+  np_early_stopping: true
+  np_early_stopping_patience: 10
+  optimizer: Adam
+  weight_decay_default: 0.0
+  specification_weight_decay_grid: [0.0, 0.0001, 0.001, 0.01]
+  specification_selection: "per architecture and primary dataset, choose grid member with highest validation ROC-AUC using train_seed 20000 and the frozen split; never use test AUC"
+
+capacities: [0.05, 0.10, 0.20, 0.30]
+
+seeds:
+  split_seed: 20260820
+  np_a: "20000 + replicate"
+  np_b: "30000 + replicate"
+  dp: "20000 + replicate  # matched initialization/order to NP_A"
+  np_spec: "20000 + replicate"
+  replicate_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+exclusion_policy:
+  allow_only:
+    - nan_scores
+    - corrupted_checkpoint
+    - incomplete_privacy_accounting
+    - runtime_failure
+  forbid: "discarding a seed because the result is inconvenient"
+
+minimum_cell_rule:
+  n_total: 100
+  n_positive: 30
+  n_negative: 30
+
+mia:
+  reuse_existing: true
+  expand: false
+  attacks: [loss, confidence, entropy, gaussian_loss_ratio, random_control]
+
+claim_restrictions:
+  - do_not_call_queue_an_intervention
+  - do_not_equate_label_with_need
+  - do_not_equate_turnover_with_harm
+  - do_not_claim_fair_or_unfair_from_descriptive_group_tables
+  - do_not_treat_historical_jedm_numbers_as_targets
